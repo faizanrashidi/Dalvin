@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">NOVA Voice AI</string>
+    <string name="accessibility_service_label">NOVA Automation Engine</string>
+    <string name="accessibility_service_description">Optional automation helper activated explicitly by you to run voice-triggered scrolling, tapping, and in-app search actions. Never collects passwords or runs silently.</string>
+    <string name="notification_listener_label">NOVA Message &amp; Media Reader</string>
+    <string name="quick_tile_label">Ask NOVA</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="nova_tagline">Multilingual Hindi · Hinglish · English Voice Intelligence</string>
+</resources>

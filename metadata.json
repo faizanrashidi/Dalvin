@@ -1,0 +1,6 @@
+{
+  "name": "NOVA Voice AI",
+  "description": "Multilingual Hindi, Hinglish & English Android Voice AI Assistant with 155 features across 14 categories.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

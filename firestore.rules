@@ -1,0 +1,178 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidLanguage(lang) {
+      return lang in ['en', 'hi', 'hinglish'];
+    }
+
+    function isValidNote(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.content is string && data.content.size() <= 5000 &&
+             data.language is string && data.language.size() <= 16 && isValidLanguage(data.language) &&
+             data.pinned is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTask(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.completed is bool &&
+             data.dueAtMillis is int && data.dueAtMillis >= 0 &&
+             data.priority is string && data.priority.size() <= 16 && data.priority in ['low', 'normal', 'high'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidHistory(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.utterance is string && data.utterance.size() >= 1 && data.utterance.size() <= 1000 &&
+             data.response is string && data.response.size() <= 4000 &&
+             data.intent is string && data.intent.size() >= 1 && data.intent.size() <= 100 &&
+             data.language is string && data.language.size() <= 16 && isValidLanguage(data.language) &&
+             data.success is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidMemory(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.key is string && data.key.size() >= 1 && data.key.size() <= 100 &&
+             data.value is string && data.value.size() >= 1 && data.value.size() <= 500 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidRoutine(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.triggerPhrase is string && data.triggerPhrase.size() >= 1 && data.triggerPhrase.size() <= 200 &&
+             data.steps is list && data.steps.size() >= 1 && data.steps.size() <= 10 &&
+             data.steps[0] is string && data.steps[0].size() <= 300 &&
+             data.enabled is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAudit(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 150 &&
+             data.detail is string && data.detail.size() <= 1000 &&
+             data.approved is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /users/{userId}/notes/{noteId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(noteId);
+      allow create: if isOwner(userId) && isValidId(noteId) &&
+                       incoming().userId == userId &&
+                       incoming().keys().hasAll(['userId', 'title', 'content', 'language', 'pinned', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'title', 'content', 'language', 'pinned', 'createdAt', 'updatedAt']) &&
+                       isValidNote(incoming());
+      allow update: if isOwner(userId) && isValidId(noteId) &&
+                       isValidNote(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'language', 'pinned', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(noteId);
+    }
+
+    match /users/{userId}/tasks/{taskId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(taskId);
+      allow create: if isOwner(userId) && isValidId(taskId) &&
+                       incoming().userId == userId &&
+                       incoming().keys().hasAll(['userId', 'title', 'completed', 'dueAtMillis', 'priority', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'title', 'completed', 'dueAtMillis', 'priority', 'createdAt', 'updatedAt']) &&
+                       isValidTask(incoming());
+      allow update: if isOwner(userId) && isValidId(taskId) &&
+                       isValidTask(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'completed', 'dueAtMillis', 'priority', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(taskId);
+    }
+
+    match /users/{userId}/history/{entryId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(entryId);
+      allow create: if isOwner(userId) && isValidId(entryId) &&
+                       incoming().userId == userId &&
+                       incoming().keys().hasAll(['userId', 'utterance', 'response', 'intent', 'language', 'success', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'utterance', 'response', 'intent', 'language', 'success', 'createdAt']) &&
+                       isValidHistory(incoming());
+      allow update: if false;
+      allow delete: if isOwner(userId) && isValidId(entryId);
+    }
+
+    match /users/{userId}/memories/{memoryId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(memoryId);
+      allow create: if isOwner(userId) && isValidId(memoryId) &&
+                       incoming().userId == userId &&
+                       incoming().keys().hasAll(['userId', 'key', 'value', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'key', 'value', 'createdAt', 'updatedAt']) &&
+                       isValidMemory(incoming());
+      allow update: if isOwner(userId) && isValidId(memoryId) &&
+                       isValidMemory(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['key', 'value', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(memoryId);
+    }
+
+    match /users/{userId}/routines/{routineId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(routineId);
+      allow create: if isOwner(userId) && isValidId(routineId) &&
+                       incoming().userId == userId &&
+                       incoming().keys().hasAll(['userId', 'name', 'triggerPhrase', 'steps', 'enabled', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'triggerPhrase', 'steps', 'enabled', 'createdAt', 'updatedAt']) &&
+                       isValidRoutine(incoming());
+      allow update: if isOwner(userId) && isValidId(routineId) &&
+                       isValidRoutine(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'triggerPhrase', 'steps', 'enabled', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(routineId);
+    }
+
+    match /users/{userId}/auditLogs/{logId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(logId);
+      allow create: if isOwner(userId) && isValidId(logId) &&
+                       incoming().userId == userId &&
+                       incoming().keys().hasAll(['userId', 'action', 'detail', 'approved', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'action', 'detail', 'approved', 'createdAt']) &&
+                       isValidAudit(incoming());
+      allow update: if false;
+      allow delete: if isOwner(userId) && isValidId(logId);
+    }
+  }
+}

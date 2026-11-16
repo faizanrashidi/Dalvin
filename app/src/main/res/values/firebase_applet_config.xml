@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<resources>
+    <string name="firestore_database_id" translatable="false">ai-studio-android-novavoic-7175f54c-9917-4a76-8643-b1d0306a00b6</string>
+    <string name="recaptcha_site_key" translatable="false">6Lf9eSMuAAAAAFpxZvtTeHCsL3uvS3KfpV07ZQZk</string>
+</resources>

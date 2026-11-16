@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "NovaNote": {
+      "title": "NovaNote",
+      "description": "User voice or typed multilingual note",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase UID" },
+        "title": { "type": "string", "description": "Note title" },
+        "content": { "type": "string", "description": "Note body" },
+        "language": { "type": "string", "enum": ["en", "hi", "hinglish"] },
+        "pinned": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "title", "content", "language", "pinned", "createdAt", "updatedAt"]
+    },
+    "NovaTask": {
+      "title": "NovaTask",
+      "description": "User voice task or reminder item",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "dueAtMillis": { "type": "integer" },
+        "priority": { "type": "string", "enum": ["low", "normal", "high"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "completed", "dueAtMillis", "priority", "createdAt", "updatedAt"]
+    },
+    "CommandHistoryItem": {
+      "title": "CommandHistoryItem",
+      "description": "Voice command execution log",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "utterance": { "type": "string" },
+        "response": { "type": "string" },
+        "intent": { "type": "string" },
+        "language": { "type": "string", "enum": ["en", "hi", "hinglish"] },
+        "success": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "utterance", "response", "intent", "language", "success", "createdAt"]
+    },
+    "NovaMemoryItem": {
+      "title": "NovaMemoryItem",
+      "description": "User-controlled AI memory entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "key": { "type": "string" },
+        "value": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "key", "value", "createdAt", "updatedAt"]
+    },
+    "AutomationRoutine": {
+      "title": "AutomationRoutine",
+      "description": "User-approved multi-step automation routine",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "triggerPhrase": { "type": "string" },
+        "steps": { "type": "array" },
+        "enabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "triggerPhrase", "steps", "enabled", "createdAt", "updatedAt"]
+    },
+    "SecurityAuditEntry": {
+      "title": "SecurityAuditEntry",
+      "description": "Immutable security & sensitive action audit record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "action": { "type": "string" },
+        "detail": { "type": "string" },
+        "approved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "action", "detail", "approved", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/NovaNote" },
+      "description": "User-scoped notes"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/NovaTask" },
+      "description": "User-scoped tasks"
+    },
+    "/users/{userId}/history/{entryId}": {
+      "schema": { "$ref": "#/entities/CommandHistoryItem" },
+      "description": "User-scoped voice command history"
+    },
+    "/users/{userId}/memories/{memoryId}": {
+      "schema": { "$ref": "#/entities/NovaMemoryItem" },
+      "description": "User-scoped AI memories"
+    },
+    "/users/{userId}/routines/{routineId}": {
+      "schema": { "$ref": "#/entities/AutomationRoutine" },
+      "description": "User-scoped automation routines"
+    },
+    "/users/{userId}/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/SecurityAuditEntry" },
+      "description": "User-scoped security audit logs"
+    }
+  }
+}
