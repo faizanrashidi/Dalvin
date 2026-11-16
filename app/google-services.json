@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "445957632254",
+    "project_id": "dalvin-4fc7e",
+    "storage_bucket": "dalvin-4fc7e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:445957632254:android:c91d285d7f66c1b593f5af",
+        "android_client_info": {
+          "package_name": "com.aistudio.novavoice.qkxmpz"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCLyDU2Vj0jkQC1FEH446w8SS1NDnwsak"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
