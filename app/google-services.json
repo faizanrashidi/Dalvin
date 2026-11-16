@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "613364350842",
+    "project_id": "novavoice-aa7c0",
+    "storage_bucket": "novavoice-aa7c0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:613364350842:android:1d01944193fe85ffb9a0c3",
+        "android_client_info": {
+          "package_name": "com.aistudio.novavoice.qkxmpz"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "613364350842-3smor4pmqf2vm8c7itmh3qnftrsctktv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDM_HHjtmDzVcwN8G9DDtdYOQ33NMBzEP0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "613364350842-3smor4pmqf2vm8c7itmh3qnftrsctktv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
