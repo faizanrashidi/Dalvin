@@ -42,7 +42,7 @@ jobs:
       - name: Generate Gradle Wrapper
         run: gradle wrapper
 
-      # Restore permanent Keystore from GitHub Secrets
+      # Restore permanent signing key
       - name: Restore Permanent NOVA Keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -50,18 +50,21 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          test -n "$KEYSTORE_BASE64" || (echo "Missing KEYSTORE_BASE64 secret" && exit 1)
+          test -n "$KEYSTORE_BASE64" || {
+            echo "ERROR: KEYSTORE_BASE64 is missing"
+            exit 1
+          }
 
           echo "$KEYSTORE_BASE64" | base64 --decode > debug.keystore
 
-          keytool -list -v \
+          keytool -list \
             -keystore debug.keystore \
             -alias "$KEY_ALIAS" \
             -storepass "$KEYSTORE_PASSWORD" \
             -keypass "$KEY_PASSWORD"
 
-      # Display SHA fingerprints
-      - name: Show NOVA SHA Fingerprints
+      # Verify signing fingerprints
+      - name: Verify NOVA SHA Fingerprints
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
