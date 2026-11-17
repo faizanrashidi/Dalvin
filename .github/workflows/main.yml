@@ -76,9 +76,13 @@ jobs:
             -storepass "$KEYSTORE_PASSWORD" \
             -keypass "$KEY_PASSWORD" | grep -E 'SHA1:|SHA256:'
 
-      # Build APK
+      # Build APK with Firebase App Check Debug Token
       - name: Build NOVA APK
-        run: ./gradlew assembleDebug
+        env:
+          FIREBASE_APPCHECK_DEBUG_TOKEN: ${{ secrets.FIREBASE_APPCHECK_DEBUG_TOKEN }}
+        run: |
+          ./gradlew assembleDebug \
+            -PfirebaseAppCheckDebugToken="$FIREBASE_APPCHECK_DEBUG_TOKEN"
 
       # Upload APK
       - name: Upload NOVA APK
