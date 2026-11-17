@@ -2,7 +2,9 @@ package com.example.ui.auth
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,24 +48,41 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+
 import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+
 import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
+
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+
+private const val AUTH_TAG = "NOVA_AUTH"
+
+/* Find Activity from Compose Context */
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+}
 
 @Composable
 fun AuthScreen(
@@ -72,7 +91,11 @@ fun AuthScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    val credentialManager = remember(context) {
+        CredentialManager.create(context)
+    }
+
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -106,7 +129,9 @@ fun AuthScreen(
                 .widthIn(max = 460.dp),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                    alpha = 0.85f
+                )
             )
         ) {
             Column(
@@ -114,8 +139,11 @@ fun AuthScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+
                 Image(
-                    painter = painterResource(id = R.drawable.img_nova_banner_1794852520758),
+                    painter = painterResource(
+                        id = R.drawable.img_nova_banner_1794852520758
+                    ),
                     contentDescription = "NOVA neural voice banner",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -169,6 +197,7 @@ fun AuthScreen(
                     onClick = {
                         errorMessage = null
                         isLoading = true
+
                         onGoogleSignInClicked(
                             context = context,
                             credentialManager = credentialManager,
@@ -204,7 +233,10 @@ fun AuthScreen(
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("Sign in with Google", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Sign in with Google",
+                            style = MaterialTheme.typography.titleMedium
+                        )
                     }
                 }
             }
@@ -219,7 +251,10 @@ private fun RowBadge() {
         color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         androidx.compose.foundation.layout.Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(
+                horizontal = 12.dp,
+                vertical = 6.dp
+            ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -229,6 +264,7 @@ private fun RowBadge() {
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
+
             Text(
                 text = "Cloud Sync + Gemini AI Logic",
                 style = MaterialTheme.typography.labelMedium,
@@ -238,6 +274,7 @@ private fun RowBadge() {
     }
 }
 
+/* AUTO GOOGLE SIGN-IN */
 fun attemptAutoSignIn(
     context: Context,
     credentialManager: CredentialManager,
@@ -249,11 +286,21 @@ fun attemptAutoSignIn(
         onAuthSuccess()
         return
     }
-    val clientId = runCatching { context.getString(R.string.default_web_client_id) }.getOrNull()
-    if (clientId.isNullOrBlank()) {
+
+    val clientId = try {
+        context.getString(R.string.default_web_client_id)
+    } catch (e: Exception) {
+        Log.e(AUTH_TAG, "Web client ID missing", e)
         onUnauthenticated()
         return
     }
+
+    if (clientId.isBlank()) {
+        Log.e(AUTH_TAG, "Web client ID is blank")
+        onUnauthenticated()
+        return
+    }
+
     val googleIdOption = GetGoogleIdOption.Builder()
         .setFilterByAuthorizedAccounts(true)
         .setServerClientId(clientId)
@@ -266,22 +313,44 @@ fun attemptAutoSignIn(
 
     scope.launch {
         try {
-            val result = credentialManager.getCredential(context, request)
+            val result = credentialManager.getCredential(
+                context,
+                request
+            )
+
             val credential = result.credential
-            if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                val authCredential = GoogleAuthProvider.getCredential(idToken, null)
+
+            if (
+                credential is CustomCredential &&
+                credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+            ) {
+                val googleCredential =
+                    GoogleIdTokenCredential.createFrom(credential.data)
+
+                val authCredential = GoogleAuthProvider.getCredential(
+                    googleCredential.idToken,
+                    null
+                )
+
                 Firebase.auth.signInWithCredential(authCredential).await()
+
+                Log.d(AUTH_TAG, "Auto Sign-In successful")
                 onAuthSuccess()
             } else {
+                Log.w(AUTH_TAG, "Unexpected auto credential type")
                 onUnauthenticated()
             }
-        } catch (_: Exception) {
+
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(AUTH_TAG, "Auto Sign-In failed", e)
             onUnauthenticated()
         }
     }
 }
 
+/* GOOGLE SIGN-IN BUTTON */
 fun onGoogleSignInClicked(
     context: Context,
     credentialManager: CredentialManager,
@@ -292,41 +361,116 @@ fun onGoogleSignInClicked(
 ) {
     val clientId = try {
         context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-        onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
-        return
-    }
-    val activity = context as? Activity
-    if (activity == null) {
-        onAuthError("Activity context required for Google Sign-In")
+    } catch (e: Exception) {
+        Log.e(AUTH_TAG, "default_web_client_id not found", e)
+        onAuthError(
+            "Google Sign-In configuration missing: default_web_client_id not found"
+        )
         return
     }
 
-    val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-    val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
+    if (clientId.isBlank()) {
+        onAuthError("Google Web Client ID is empty.")
+        return
+    }
+
+    val activity = context.findActivity()
+
+    if (activity == null) {
+        onAuthError("Activity context required for Google Sign-In.")
+        return
+    }
+
+    val signInOption = GetSignInWithGoogleOption.Builder(
+        serverClientId = clientId
+    ).build()
+
+    val request = GetCredentialRequest.Builder()
+        .addCredentialOption(signInOption)
+        .build()
 
     scope.launch {
         try {
-            val result = credentialManager.getCredential(activity, request)
+            Log.d(AUTH_TAG, "Starting Google Sign-In")
+
+            val result = credentialManager.getCredential(
+                activity,
+                request
+            )
+
             val credential = result.credential
-            if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                val authCredential = GoogleAuthProvider.getCredential(idToken, null)
-                Firebase.auth.signInWithCredential(authCredential).await()
+
+            if (
+                credential !is CustomCredential ||
+                credential.type != TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+            ) {
+                onAuthError(
+                    "Unexpected credential type: ${credential.type}"
+                )
+                return@launch
+            }
+
+            val googleCredential =
+                GoogleIdTokenCredential.createFrom(credential.data)
+
+            val idToken = googleCredential.idToken
+
+            if (idToken.isBlank()) {
+                onAuthError("Google returned an empty ID Token.")
+                return@launch
+            }
+
+            Log.d(AUTH_TAG, "Google ID Token received")
+
+            val authCredential = GoogleAuthProvider.getCredential(
+                idToken,
+                null
+            )
+
+            val authResult = Firebase.auth
+                .signInWithCredential(authCredential)
+                .await()
+
+            if (authResult.user != null) {
+                Log.d(AUTH_TAG, "Firebase Google Sign-In successful")
                 onAuthSuccess()
             } else {
-                onAuthError("Unexpected credential type received.")
+                onAuthError("Firebase authentication returned no user.")
             }
+
         } catch (e: GetCredentialCancellationException) {
-            Log.w("Auth", "Google Sign-In cancelled or dismissed: ${e.message}", e)
+            Log.w(
+                AUTH_TAG,
+                "Google Sign-In cancelled",
+                e
+            )
             onAuthCancelled()
+
+        } catch (e: CancellationException) {
+            throw e
+
         } catch (e: Exception) {
-            Log.e("Auth", "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "Google Sign-In failed")
+            Log.e(
+                AUTH_TAG,
+                "Google Sign-In failed",
+                e
+            )
+
+            val error = buildString {
+                append("Error: ${e.javaClass.simpleName}")
+                append("\nMessage: ${e.localizedMessage ?: "Unknown error"}")
+
+                if (e is FirebaseAuthException) {
+                    append("\nFirebase Code: ${e.errorCode}")
+                }
+            }
+
+            onAuthError(error)
         }
     }
 }
 
+/* GOOGLE + FIREBASE SIGN-OUT */
 fun signOutUser(
     credentialManager: CredentialManager,
     scope: CoroutineScope,
@@ -335,11 +479,18 @@ fun signOutUser(
     scope.launch {
         withContext(NonCancellable) {
             try {
-                credentialManager.clearCredentialState(ClearCredentialStateRequest())
+                credentialManager.clearCredentialState(
+                    ClearCredentialStateRequest()
+                )
             } catch (e: Exception) {
-                Log.w("Auth", "Failed to clear credential state: ${e.message}")
+                Log.w(
+                    AUTH_TAG,
+                    "Failed to clear credential state",
+                    e
+                )
             } finally {
                 Firebase.auth.signOut()
+                Log.d(AUTH_TAG, "User signed out")
                 onComplete()
             }
         }
