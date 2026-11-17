@@ -75,7 +75,7 @@ import kotlinx.coroutines.withContext
 
 private const val AUTH_TAG = "NOVA_AUTH"
 
-/* Find Activity from Compose Context */
+/* Find Activity from Context */
 private tailrec fun Context.findActivity(): Activity? {
     return when (this) {
         is Activity -> this
@@ -84,6 +84,7 @@ private tailrec fun Context.findActivity(): Activity? {
     }
 }
 
+/* MAIN AUTH SCREEN */
 @Composable
 fun AuthScreen(
     onAuthSuccess: () -> Unit,
@@ -139,7 +140,6 @@ fun AuthScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-
                 Image(
                     painter = painterResource(
                         id = R.drawable.img_nova_banner_1794852520758
@@ -205,9 +205,9 @@ fun AuthScreen(
                                 isLoading = false
                                 onAuthSuccess()
                             },
-                            onAuthError = { msg ->
+                            onAuthError = { message ->
                                 isLoading = false
-                                errorMessage = msg
+                                errorMessage = message
                             },
                             scope = scope,
                             onAuthCancelled = {
@@ -244,6 +244,7 @@ fun AuthScreen(
     }
 }
 
+/* AUTH BADGE */
 @Composable
 private fun RowBadge() {
     Surface(
@@ -274,7 +275,7 @@ private fun RowBadge() {
     }
 }
 
-/* AUTO GOOGLE SIGN-IN */
+/* AUTO SIGN-IN */
 fun attemptAutoSignIn(
     context: Context,
     credentialManager: CredentialManager,
@@ -283,6 +284,7 @@ fun attemptAutoSignIn(
     scope: CoroutineScope
 ) {
     if (Firebase.auth.currentUser != null) {
+        Log.d(AUTH_TAG, "Existing Firebase session found")
         onAuthSuccess()
         return
     }
@@ -290,29 +292,31 @@ fun attemptAutoSignIn(
     val clientId = try {
         context.getString(R.string.default_web_client_id)
     } catch (e: Exception) {
-        Log.e(AUTH_TAG, "Web client ID missing", e)
+        Log.e(AUTH_TAG, "Web Client ID missing", e)
         onUnauthenticated()
         return
     }
 
     if (clientId.isBlank()) {
-        Log.e(AUTH_TAG, "Web client ID is blank")
+        Log.e(AUTH_TAG, "Web Client ID is blank")
         onUnauthenticated()
         return
     }
 
-    val googleIdOption = GetGoogleIdOption.Builder()
+    val option = GetGoogleIdOption.Builder()
         .setFilterByAuthorizedAccounts(true)
         .setServerClientId(clientId)
         .setAutoSelectEnabled(true)
         .build()
 
     val request = GetCredentialRequest.Builder()
-        .addCredentialOption(googleIdOption)
+        .addCredentialOption(option)
         .build()
 
     scope.launch {
         try {
+            Log.d(AUTH_TAG, "Starting Auto Sign-In")
+
             val result = credentialManager.getCredential(
                 context,
                 request
@@ -332,10 +336,21 @@ fun attemptAutoSignIn(
                     null
                 )
 
-                Firebase.auth.signInWithCredential(authCredential).await()
+                Log.d(AUTH_TAG, "Auto Sign-In: Starting Firebase")
 
-                Log.d(AUTH_TAG, "Auto Sign-In successful")
-                onAuthSuccess()
+                val authResult = Firebase.auth
+                    .signInWithCredential(authCredential)
+                    .await()
+
+                Log.d(AUTH_TAG, "Auto Sign-In: Firebase completed")
+
+                if (authResult.user != null) {
+                    Log.d(AUTH_TAG, "Auto Sign-In successful")
+                    onAuthSuccess()
+                } else {
+                    Log.e(AUTH_TAG, "Auto Sign-In returned null user")
+                    onUnauthenticated()
+                }
             } else {
                 Log.w(AUTH_TAG, "Unexpected auto credential type")
                 onUnauthenticated()
@@ -350,7 +365,7 @@ fun attemptAutoSignIn(
     }
 }
 
-/* GOOGLE SIGN-IN BUTTON */
+/* MANUAL GOOGLE SIGN-IN */
 fun onGoogleSignInClicked(
     context: Context,
     credentialManager: CredentialManager,
@@ -362,10 +377,8 @@ fun onGoogleSignInClicked(
     val clientId = try {
         context.getString(R.string.default_web_client_id)
     } catch (e: Exception) {
-        Log.e(AUTH_TAG, "default_web_client_id not found", e)
-        onAuthError(
-            "Google Sign-In configuration missing: default_web_client_id not found"
-        )
+        Log.e(AUTH_TAG, "default_web_client_id missing", e)
+        onAuthError("Google Sign-In configuration missing: default_web_client_id")
         return
     }
 
@@ -377,7 +390,7 @@ fun onGoogleSignInClicked(
     val activity = context.findActivity()
 
     if (activity == null) {
-        onAuthError("Activity context required for Google Sign-In.")
+        onAuthError("Activity context required.")
         return
     }
 
@@ -398,15 +411,16 @@ fun onGoogleSignInClicked(
                 request
             )
 
+            Log.d(AUTH_TAG, "Google Credential received")
+
             val credential = result.credential
 
             if (
                 credential !is CustomCredential ||
                 credential.type != TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
             ) {
-                onAuthError(
-                    "Unexpected credential type: ${credential.type}"
-                )
+                Log.e(AUTH_TAG, "Unexpected credential type: ${credential.type}")
+                onAuthError("Unexpected Google credential type.")
                 return@launch
             }
 
@@ -427,34 +441,35 @@ fun onGoogleSignInClicked(
                 null
             )
 
+            Log.d(AUTH_TAG, "Starting Firebase Authentication")
+
             val authResult = Firebase.auth
                 .signInWithCredential(authCredential)
                 .await()
 
-            if (authResult.user != null) {
+            Log.d(AUTH_TAG, "Firebase Authentication completed")
+
+            val user = authResult.user
+
+            if (user != null) {
                 Log.d(AUTH_TAG, "Firebase Google Sign-In successful")
+                Log.d(AUTH_TAG, "UID: ${user.uid}")
                 onAuthSuccess()
             } else {
+                Log.e(AUTH_TAG, "Firebase returned null user")
                 onAuthError("Firebase authentication returned no user.")
             }
 
         } catch (e: GetCredentialCancellationException) {
-            Log.w(
-                AUTH_TAG,
-                "Google Sign-In cancelled",
-                e
-            )
+            Log.w(AUTH_TAG, "Google Sign-In cancelled", e)
             onAuthCancelled()
 
         } catch (e: CancellationException) {
+            Log.w(AUTH_TAG, "Sign-In coroutine cancelled", e)
             throw e
 
         } catch (e: Exception) {
-            Log.e(
-                AUTH_TAG,
-                "Google Sign-In failed",
-                e
-            )
+            Log.e(AUTH_TAG, "Google Sign-In failed", e)
 
             val error = buildString {
                 append("Error: ${e.javaClass.simpleName}")
@@ -470,7 +485,7 @@ fun onGoogleSignInClicked(
     }
 }
 
-/* GOOGLE + FIREBASE SIGN-OUT */
+/* SIGN OUT */
 fun signOutUser(
     credentialManager: CredentialManager,
     scope: CoroutineScope,
@@ -483,14 +498,10 @@ fun signOutUser(
                     ClearCredentialStateRequest()
                 )
             } catch (e: Exception) {
-                Log.w(
-                    AUTH_TAG,
-                    "Failed to clear credential state",
-                    e
-                )
+                Log.w(AUTH_TAG, "Failed to clear credential state", e)
             } finally {
                 Firebase.auth.signOut()
-                Log.d(AUTH_TAG, "User signed out")
+                Log.d(AUTH_TAG, "Firebase Sign-Out completed")
                 onComplete()
             }
         }
