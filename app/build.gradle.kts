@@ -19,6 +19,11 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    buildConfigField(
+        "String",
+        "FIREBASE_APPCHECK_DEBUG_TOKEN",
+        "\"${providers.gradleProperty("firebaseAppCheckDebugToken").orNull ?: ""}\""
+    )
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
