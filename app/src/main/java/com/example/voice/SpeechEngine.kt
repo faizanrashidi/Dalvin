@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class SpeechEngine(context: Context) {
 
@@ -19,33 +20,65 @@ class SpeechEngine(context: Context) {
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
-    private var onCompleteAction: (() -> Unit)? = null
+    private val completionCallbacks =
+        ConcurrentHashMap<String, (() -> Unit)>()
+
     private var tts: TextToSpeech? = null
 
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
+
             if (status == TextToSpeech.SUCCESS) {
+
                 _isReady.value = true
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        _isSpeaking.value = true
-                    }
 
-                    override fun onDone(utteranceId: String?) {
-                        _isSpeaking.value = false
-                        val cb = onCompleteAction
-                        onCompleteAction = null
-                        cb?.invoke()
-                    }
+                tts?.setOnUtteranceProgressListener(
+                    object : UtteranceProgressListener() {
 
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        _isSpeaking.value = false
-                        onCompleteAction = null
+                        override fun onStart(utteranceId: String?) {
+                            _isSpeaking.value = true
+                        }
+
+                        override fun onDone(utteranceId: String?) {
+                            utteranceId?.let {
+                                completionCallbacks.remove(it)?.invoke()
+                            }
+
+                            if (completionCallbacks.isEmpty()) {
+                                _isSpeaking.value = false
+                            }
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            utteranceId?.let {
+                                completionCallbacks.remove(it)
+                            }
+
+                            if (completionCallbacks.isEmpty()) {
+                                _isSpeaking.value = false
+                            }
+                        }
+
+                        override fun onError(
+                            utteranceId: String?,
+                            errorCode: Int
+                        ) {
+                            utteranceId?.let {
+                                completionCallbacks.remove(it)
+                            }
+
+                            Log.e(TAG, "TTS error: $errorCode")
+                            if (completionCallbacks.isEmpty()) {
+                                _isSpeaking.value = false
+                            }
+                        }
                     }
-                })
+                )
+
             } else {
-                Log.w(TAG, "TTS initialization returned status=$status")
+                Log.e(TAG, "TTS initialization failed: $status")
+                _isReady.value = false
             }
         }
     }
@@ -57,42 +90,87 @@ class SpeechEngine(context: Context) {
         pitch: Float = 1.0f,
         onDone: (() -> Unit)? = null
     ) {
-        val engine = tts ?: return
-        if (!_isReady.value || text.isBlank()) {
+        val engine = tts
+
+        if (engine == null || !_isReady.value || text.isBlank()) {
             onDone?.invoke()
             return
         }
+
         val locale = when (language) {
-            NovaLanguage.HINDI -> Locale.forLanguageTag("hi-IN")
-            NovaLanguage.HINGLISH -> Locale.forLanguageTag("en-IN")
-            NovaLanguage.ENGLISH -> Locale.forLanguageTag("en-IN")
+            NovaLanguage.HINDI ->
+                Locale.forLanguageTag("hi-IN")
+
+            NovaLanguage.HINGLISH,
+            NovaLanguage.ENGLISH ->
+                Locale.forLanguageTag("en-IN")
         }
-        val result = engine.setLanguage(locale)
-        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+
+        val languageResult = engine.setLanguage(locale)
+
+        if (
+            languageResult == TextToSpeech.LANG_MISSING_DATA ||
+            languageResult == TextToSpeech.LANG_NOT_SUPPORTED
+        ) {
             engine.language = Locale.US
         }
+
         engine.setSpeechRate(rate.coerceIn(0.6f, 1.8f))
         engine.setPitch(pitch.coerceIn(0.6f, 1.6f))
-        onCompleteAction = onDone
+
         val utteranceId = UUID.randomUUID().toString()
-        engine.speak(text.take(3500), TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+
+        if (onDone != null) {
+            completionCallbacks[utteranceId] = onDone
+        }
+
+        _isSpeaking.value = true
+
+        val result = engine.speak(
+            text.take(3500),
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            utteranceId
+        )
+
+        if (result == TextToSpeech.ERROR) {
+            completionCallbacks.remove(utteranceId)
+            _isSpeaking.value = false
+            Log.e(TAG, "TTS speak request failed")
+            onDone?.invoke()
+        }
     }
 
+    /**
+     * Immediately interrupt current speech.
+     */
     fun stop() {
-        onCompleteAction = null
+        completionCallbacks.clear()
         _isSpeaking.value = false
+
         try {
             tts?.stop()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "TTS stop failed", e)
         }
+    }
+
+    /**
+     * Alias for stop().
+     */
+    fun stopSpeaking() {
+        stop()
     }
 
     fun shutdown() {
         stop()
+
         try {
             tts?.shutdown()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "TTS shutdown failed", e)
         }
+
         tts = null
         _isReady.value = false
     }
