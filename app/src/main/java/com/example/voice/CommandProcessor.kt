@@ -1,3 +1,4 @@
+
 package com.example.voice
 
 import android.content.Context
@@ -7,7 +8,6 @@ import com.example.core.ConfirmationRequest
 import com.example.core.NovaIntent
 import com.example.core.NovaLanguage
 import com.example.core.NovaMemoryItem
-import com.example.core.NovaProfile
 import com.example.data.NovaRepository
 import com.example.data.NovaSettingsState
 import com.example.managers.AppLaunchOutcome
@@ -27,6 +27,7 @@ import com.example.managers.VolumeController
 import com.example.services.AccessibilityAutomationManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.collect
 import java.util.UUID
 
 class CommandProcessor(
@@ -60,19 +61,35 @@ class CommandProcessor(
         onRequestConfirmation: (ConfirmationRequest) -> Unit,
         onStreamAiUpdate: (String) -> Unit
     ): Flow<CommandExecutionResult> = flow {
+
         val utterance = rawUtterance.trim()
+
+        if (utterance.isBlank()) {
+            emit(
+                CommandExecutionResult(
+                    utterance = utterance,
+                    response = "Please say or type a command.",
+                    intentLabel = "EmptyCommand",
+                    language = settings.language,
+                    success = false
+                )
+            )
+            return@flow
+        }
+
         val detectedLang = if (settings.language == NovaLanguage.ENGLISH) {
             intentDetector.detectLanguage(utterance)
         } else {
             settings.language
         }
 
-        // Support chained multi-step commands ("open calculator aur volume up" / "X then Y")
         val steps = splitChainedSteps(utterance)
+
         if (steps.size > 1) {
             val stepReplies = mutableListOf<String>()
+
             for (step in steps) {
-                val res = executeSingleStep(
+                val result = executeSingleStep(
                     step = step,
                     userId = userId,
                     lang = detectedLang,
@@ -84,33 +101,36 @@ class CommandProcessor(
                     onRequestConfirmation = onRequestConfirmation,
                     onStreamAiUpdate = onStreamAiUpdate
                 )
-                stepReplies.add("• $step → ${res.response}")
+
+                stepReplies.add("• $step → ${result.response}")
             }
-            val combined = stepReplies.joinToString("\n")
-            val result = CommandExecutionResult(
-                utterance = utterance,
-                response = combined,
-                intentLabel = "MultiStep(${steps.size})",
-                language = detectedLang,
-                success = true
+
+            emit(
+                CommandExecutionResult(
+                    utterance = utterance,
+                    response = stepReplies.joinToString("\n"),
+                    intentLabel = "MultiStep(${steps.size})",
+                    language = detectedLang,
+                    success = true
+                )
             )
-            emit(result)
             return@flow
         }
 
-        val single = executeSingleStep(
-            step = utterance,
-            userId = userId,
-            lang = detectedLang,
-            settings = settings,
-            memories = memories,
-            ttsReady = ttsReady,
-            onNavigateToCamera = onNavigateToCamera,
-            onNavigateToGalleryPicker = onNavigateToGalleryPicker,
-            onRequestConfirmation = onRequestConfirmation,
-            onStreamAiUpdate = onStreamAiUpdate
+        emit(
+            executeSingleStep(
+                step = utterance,
+                userId = userId,
+                lang = detectedLang,
+                settings = settings,
+                memories = memories,
+                ttsReady = ttsReady,
+                onNavigateToCamera = onNavigateToCamera,
+                onNavigateToGalleryPicker = onNavigateToGalleryPicker,
+                onRequestConfirmation = onRequestConfirmation,
+                onStreamAiUpdate = onStreamAiUpdate
+            )
         )
-        emit(single)
     }
 
     private suspend fun executeSingleStep(
@@ -125,32 +145,58 @@ class CommandProcessor(
         onRequestConfirmation: (ConfirmationRequest) -> Unit,
         onStreamAiUpdate: (String) -> Unit
     ): CommandExecutionResult {
-        // 1. Check modular SkillPluginRegistry first
+
         skillRegistry.tryHandle(step)?.let { pluginReply ->
-            return CommandExecutionResult(step, pluginReply, "SkillPlugin", lang, true)
+            return CommandExecutionResult(
+                step,
+                pluginReply,
+                "SkillPlugin",
+                lang,
+                true
+            )
         }
 
-        // 2. Deterministic offline IntentDetector
         val intent = intentDetector.detect(step)
+
         return when (intent) {
+
             is NovaIntent.OpenApp -> {
                 when (val outcome = appLauncher.launchApp(intent.appName, intent.inAppQuery)) {
-                    is AppLaunchOutcome.Launched ->
-                        CommandExecutionResult(step, outcome.message, "OpenApp(${outcome.appLabel})", lang, true)
+
+                    is AppLaunchOutcome.Launched -> {
+                        CommandExecutionResult(
+                            step,
+                            outcome.message,
+                            "OpenApp(${outcome.appLabel})",
+                            lang,
+                            true
+                        )
+                    }
+
                     is AppLaunchOutcome.NotInstalled -> {
                         val promptText = when (lang) {
-                            NovaLanguage.HINDI -> "${outcome.requestedName} फोन में इंस्टॉल नहीं है। क्या मैं इसे Play Store में खोजकर खोल दूँ?"
-                            NovaLanguage.HINGLISH -> "${outcome.requestedName} aapke phone me install nahi hai. Kya main Play Store par search karke install page khol doon?"
-                            NovaLanguage.ENGLISH -> "${outcome.requestedName} is not installed. Should I open Play Store to search and install it?"
+                            NovaLanguage.HINDI ->
+                                "${outcome.requestedName} फोन में इंस्टॉल नहीं है। क्या मैं इसे Play Store में खोजकर खोल दूँ?"
+
+                            NovaLanguage.HINGLISH ->
+                                "${outcome.requestedName} aapke phone me install nahi hai. Kya main Play Store par search karke install page khol doon?"
+
+                            NovaLanguage.ENGLISH ->
+                                "${outcome.requestedName} is not installed. Should I open Play Store to search and install it?"
                         }
+
                         val confirm = ConfirmationRequest(
                             id = UUID.randomUUID().toString(),
                             title = "Install ${outcome.requestedName}?",
                             description = promptText,
                             actionType = "PLAY_STORE_INSTALL",
-                            onConfirm = { appLauncher.openPlayStoreSearch(outcome.requestedName) }
+                            onConfirm = {
+                                appLauncher.openPlayStoreSearch(outcome.requestedName)
+                            }
                         )
+
                         onRequestConfirmation(confirm)
+
                         CommandExecutionResult(
                             step,
                             promptText,
@@ -161,8 +207,16 @@ class CommandProcessor(
                             openPlayStorePromptApp = outcome.requestedName
                         )
                     }
-                    is AppLaunchOutcome.Failed ->
-                        CommandExecutionResult(step, outcome.message, "OpenAppFailed", lang, false)
+
+                    is AppLaunchOutcome.Failed -> {
+                        CommandExecutionResult(
+                            step,
+                            outcome.message,
+                            "OpenAppFailed",
+                            lang,
+                            false
+                        )
+                    }
                 }
             }
 
@@ -207,6 +261,7 @@ class CommandProcessor(
                     "scroll_up" -> AccessibilityAutomationManager.scrollScreen(down = false)
                     else -> "Automation action executed."
                 }
+
                 CommandExecutionResult(step, msg, "Automation", lang, true)
             }
 
@@ -217,25 +272,34 @@ class CommandProcessor(
 
             is NovaIntent.SearchContact -> {
                 val contacts = contactManager.searchContacts(intent.name)
+
                 val msg = if (!contactManager.hasReadContactsPermission()) {
                     contactManager.openContactsSearchUi(intent.name)
                     "READ_CONTACTS not granted; opened Contacts app for '${intent.name}'."
                 } else if (contacts.isEmpty()) {
                     "No contacts matching '${intent.name}'."
                 } else {
-                    contacts.take(4).joinToString("\n") { "${it.name}: ${it.phone}" }
+                    contacts.take(4).joinToString("\n") {
+                        "${it.name}: ${it.phone}"
+                    }
                 }
+
                 CommandExecutionResult(step, msg, "SearchContact", lang, true)
             }
 
             is NovaIntent.InitiateCall -> {
                 val raw = intent.target
-                val isDigits = raw.replace(Regex("[+\\-\\s()]"), "").all { it.isDigit() }
+
+                val isDigits = raw
+                    .replace(Regex("[+\\-\\s()]"), "")
+                    .all { it.isDigit() }
+
                 val resolvedNumber = if (isDigits) {
                     raw
                 } else {
                     contactManager.searchContacts(raw).firstOrNull()?.phone
                 }
+
                 if (resolvedNumber.isNullOrBlank()) {
                     CommandExecutionResult(
                         step,
@@ -246,35 +310,61 @@ class CommandProcessor(
                     )
                 } else {
                     val prompt = "Confirm call to $raw ($resolvedNumber)?"
+
                     val confirm = ConfirmationRequest(
                         id = UUID.randomUUID().toString(),
                         title = "Confirm Phone Call",
                         description = prompt,
                         actionType = "CALL_PHONE",
-                        onConfirm = { contactManager.placeDirectCall(resolvedNumber) }
+                        onConfirm = {
+                            contactManager.placeDirectCall(resolvedNumber)
+                        }
                     )
+
                     onRequestConfirmation(confirm)
-                    CommandExecutionResult(step, prompt, "ConfirmCall", lang, true, pendingConfirmation = confirm)
+
+                    CommandExecutionResult(
+                        step,
+                        prompt,
+                        "ConfirmCall",
+                        lang,
+                        true,
+                        pendingConfirmation = confirm
+                    )
                 }
             }
 
             is NovaIntent.ComposeSms -> {
-                val resolved = contactManager.searchContacts(intent.recipient).firstOrNull()?.phone
-                    ?: intent.recipient
+                val resolved = contactManager.searchContacts(intent.recipient)
+                    .firstOrNull()?.phone ?: intent.recipient
+
                 val prompt = "Send SMS to $resolved: \"${intent.body}\"?"
+
                 val confirm = ConfirmationRequest(
                     id = UUID.randomUUID().toString(),
                     title = "Confirm SMS",
                     description = prompt,
                     actionType = "SEND_SMS",
-                    onConfirm = { smsManager.sendConfirmedSms(resolved, intent.body) }
+                    onConfirm = {
+                        smsManager.sendConfirmedSms(resolved, intent.body)
+                    }
                 )
+
                 onRequestConfirmation(confirm)
-                CommandExecutionResult(step, prompt, "ConfirmSMS", lang, true, pendingConfirmation = confirm)
+
+                CommandExecutionResult(
+                    step,
+                    prompt,
+                    "ConfirmSMS",
+                    lang,
+                    true,
+                    pendingConfirmation = confirm
+                )
             }
 
             is NovaIntent.OpenCamera -> {
                 onNavigateToCamera(intent.capturePhoto, intent.frontLens)
+
                 val msg = if (intent.capturePhoto) {
                     "Opening NOVA Camera for photo capture."
                 } else if (intent.video) {
@@ -282,12 +372,20 @@ class CommandProcessor(
                 } else {
                     "Opening NOVA Camera viewfinder."
                 }
+
                 CommandExecutionResult(step, msg, "Camera", lang, true)
             }
 
             is NovaIntent.OpenGallery -> {
                 onNavigateToGalleryPicker()
-                CommandExecutionResult(step, "Opening Android Photo Picker.", "GalleryPicker", lang, true)
+
+                CommandExecutionResult(
+                    step,
+                    "Opening Android Photo Picker.",
+                    "GalleryPicker",
+                    lang,
+                    true
+                )
             }
 
             is NovaIntent.WebSearch -> {
@@ -301,18 +399,40 @@ class CommandProcessor(
             }
 
             is NovaIntent.WeatherLookup -> {
-                val res = internetManager.fetchWeather(intent.city)
-                res.fold(
-                    onSuccess = { CommandExecutionResult(step, it.summary, "Weather", lang, true) },
-                    onFailure = { CommandExecutionResult(step, "Weather check failed: ${it.localizedMessage}", "Weather", lang, false) }
+                val result = internetManager.fetchWeather(intent.city)
+
+                result.fold(
+                    onSuccess = {
+                        CommandExecutionResult(step, it.summary, "Weather", lang, true)
+                    },
+                    onFailure = {
+                        CommandExecutionResult(
+                            step,
+                            "Weather check failed: ${it.localizedMessage}",
+                            "Weather",
+                            lang,
+                            false
+                        )
+                    }
                 )
             }
 
             is NovaIntent.WikiLookup -> {
-                val res = internetManager.fetchWikipediaSummary(intent.topic)
-                res.fold(
-                    onSuccess = { CommandExecutionResult(step, it, "Wikipedia", lang, true) },
-                    onFailure = { CommandExecutionResult(step, "Wikipedia lookup failed: ${it.localizedMessage}", "Wikipedia", lang, false) }
+                val result = internetManager.fetchWikipediaSummary(intent.topic)
+
+                result.fold(
+                    onSuccess = {
+                        CommandExecutionResult(step, it, "Wikipedia", lang, true)
+                    },
+                    onFailure = {
+                        CommandExecutionResult(
+                            step,
+                            "Wikipedia lookup failed: ${it.localizedMessage}",
+                            "Wikipedia",
+                            lang,
+                            false
+                        )
+                    }
                 )
             }
 
@@ -333,89 +453,195 @@ class CommandProcessor(
 
             is NovaIntent.CreateNote -> {
                 repository.addNote(userId, intent.title, intent.content, lang.code)
-                CommandExecutionResult(step, "Saved note: '${intent.title}'.", "CreateNote", lang, true)
+
+                CommandExecutionResult(
+                    step,
+                    "Saved note: '${intent.title}'.",
+                    "CreateNote",
+                    lang,
+                    true
+                )
             }
 
             is NovaIntent.CreateTask -> {
                 repository.addTask(userId, intent.title, intent.priority)
-                CommandExecutionResult(step, "Added task: '${intent.title}'.", "CreateTask", lang, true)
+
+                CommandExecutionResult(
+                    step,
+                    "Added task: '${intent.title}'.",
+                    "CreateTask",
+                    lang,
+                    true
+                )
             }
 
             is NovaIntent.CreateReminder -> {
-                val msg = reminderManager.scheduleWorkReminder(intent.title, intent.delayMinutes)
+                val msg = reminderManager.scheduleWorkReminder(
+                    intent.title,
+                    intent.delayMinutes
+                )
+
                 CommandExecutionResult(step, msg, "Reminder", lang, true)
             }
 
             is NovaIntent.CalculateExpression -> {
                 val result = intentDetector.evaluateMath(intent.expression)
                     ?: "Could not parse math expression. Example: '250 ka 18%' or '45 * 12'."
+
                 CommandExecutionResult(step, "Result: $result", "Calculator", lang, true)
             }
 
             is NovaIntent.FileSearch -> {
                 val files = fileManager.searchFiles(intent.query, settings.safTreeUri)
+
                 val msg = if (files.isEmpty()) {
                     "No files matching '${intent.query}' in NOVA workspace or selected folder."
                 } else {
-                    "Found ${files.size} file(s): ${files.take(5).joinToString(", ") { it.name }}"
+                    "Found ${files.size} file(s): ${
+                        files.take(5).joinToString(", ") { it.name }
+                    }"
                 }
+
                 CommandExecutionResult(step, msg, "FileSearch", lang, true)
             }
 
             is NovaIntent.TranslateText -> {
                 val reply = runCatching {
-                    aiEngine.generateOneShot("Translate to ${intent.targetLanguage}: ${intent.text}", lang)
-                }.getOrElse { "Translation failed: ${it.localizedMessage}" }
-                CommandExecutionResult(step, reply, "Translate", lang, !reply.startsWith("Translation failed"))
+                    aiEngine.generateOneShot(
+                        "Translate to ${intent.targetLanguage}: ${intent.text}",
+                        lang
+                    )
+                }.getOrElse {
+                    "Translation failed: ${it.localizedMessage}"
+                }
+
+                CommandExecutionResult(
+                    step,
+                    reply,
+                    "Translate",
+                    lang,
+                    !reply.startsWith("Translation failed")
+                )
             }
 
             is NovaIntent.SummarizeText -> {
                 val reply = runCatching {
-                    aiEngine.generateOneShot("Summarize clearly: ${intent.text}", lang)
-                }.getOrElse { "Summarization failed: ${it.localizedMessage}" }
-                CommandExecutionResult(step, reply, "Summarize", lang, !reply.startsWith("Summarization failed"))
+                    aiEngine.generateOneShot(
+                        "Summarize clearly: ${intent.text}",
+                        lang
+                    )
+                }.getOrElse {
+                    "Summarization failed: ${it.localizedMessage}"
+                }
+
+                CommandExecutionResult(
+                    step,
+                    reply,
+                    "Summarize",
+                    lang,
+                    !reply.startsWith("Summarization failed")
+                )
             }
 
             is NovaIntent.RunRoutine -> {
-                CommandExecutionResult(step, "Run routines from the Automation tab.", "Routine", lang, true)
+                CommandExecutionResult(
+                    step,
+                    "Run routines from the Automation tab.",
+                    "Routine",
+                    lang,
+                    true
+                )
             }
 
             is NovaIntent.DailyBriefing -> {
-                val dev = deviceInfoManager.formatTopicReport(com.example.core.DeviceInfoTopic.ALL)
+                val device = deviceInfoManager.formatTopicReport(
+                    com.example.core.DeviceInfoTopic.ALL
+                )
+
                 val events = reminderManager.readUpcomingEvents()
-                val wx = internetManager.fetchWeather("New Delhi").getOrNull()?.summary ?: "Weather offline"
+
+                val weather = internetManager.fetchWeather("New Delhi")
+                    .getOrNull()?.summary ?: "Weather offline"
+
                 val briefing = buildString {
                     appendLine("Daily NOVA Briefing:")
-                    appendLine("• Device: $dev")
-                    appendLine("• Weather: $wx")
-                    appendLine("• Calendar: ${if (events.isEmpty()) "No upcoming events readable" else events.take(3).joinToString("; ") { it.title }}")
+                    appendLine("• Device: $device")
+                    appendLine("• Weather: $weather")
+                    appendLine(
+                        "• Calendar: ${
+                            if (events.isEmpty()) {
+                                "No upcoming events readable"
+                            } else {
+                                events.take(3).joinToString("; ") { it.title }
+                            }
+                        }"
+                    )
                 }
-                CommandExecutionResult(step, briefing.trim(), "DailyBriefing", lang, true)
+
+                CommandExecutionResult(
+                    step,
+                    briefing.trim(),
+                    "DailyBriefing",
+                    lang,
+                    true
+                )
             }
 
             is NovaIntent.RunDiagnostics -> {
-                val checks = diagnosticsEngine.runAll(ttsReady, settings, deviceInfoManager, internetManager)
+                val checks = diagnosticsEngine.runAll(
+                    ttsReady,
+                    settings,
+                    deviceInfoManager,
+                    internetManager
+                )
+
                 val summary = checks.joinToString("\n") {
                     "${if (it.passed) "[PASS]" else "[WARN]"} ${it.component}: ${it.detail}"
                 }
-                CommandExecutionResult(step, summary, "Diagnostics", lang, true)
+
+                CommandExecutionResult(
+                    step,
+                    summary,
+                    "Diagnostics",
+                    lang,
+                    true
+                )
             }
 
             is NovaIntent.AskAi -> {
-                val activeMemories = if (settings.memoryEnabled) memories else emptyList()
-                val sb = StringBuilder()
-                return try {
-                    aiEngine.streamChat(intent.prompt, lang, settings.profile, activeMemories)
-                        .collect { partial ->
-                            sb.clear()
-                            sb.append(partial)
-                            onStreamAiUpdate(partial)
-                        }
-                    CommandExecutionResult(step, sb.toString(), "GeminiAI", lang, true)
+                val activeMemories = if (settings.memoryEnabled) {
+                    memories
+                } else {
+                    emptyList()
+                }
+
+                val responseBuilder = StringBuilder()
+
+                try {
+                    aiEngine.streamChat(
+                        intent.prompt,
+                        lang,
+                        settings.profile,
+                        activeMemories
+                    ).collect { partial ->
+                        responseBuilder.clear()
+                        responseBuilder.append(partial)
+                        onStreamAiUpdate(partial)
+                    }
+
+                    CommandExecutionResult(
+                        step,
+                        responseBuilder.toString(),
+                        "GeminiAI",
+                        lang,
+                        true
+                    )
                 } catch (e: Exception) {
                     CommandExecutionResult(
                         step,
-                        "Gemini AI Error: ${e.localizedMessage ?: "Check internet or App Check config"}",
+                        "Gemini AI Error: ${
+                            e.localizedMessage ?: "Check internet or App Check config"
+                        }",
                         "GeminiAIError",
                         lang,
                         false
@@ -427,11 +653,30 @@ class CommandProcessor(
 
     private fun splitChainedSteps(utterance: String): List<String> {
         val lower = utterance.lowercase()
-        // Only split explicit multi-command connectors when not a general AI sentence
-        val hasActionVerb = listOf("open", "kholo", "volume", "flashlight", "torch", "alarm", "timer", "battery", "wifi", "bluetooth")
-            .any { lower.contains(it) }
-        if (!hasActionVerb) return listOf(utterance)
-        return utterance.split(Regex("\\s+(?:and then|aur fir|fir|then|aur)\\s+", RegexOption.IGNORE_CASE))
+
+        val hasActionVerb = listOf(
+            "open",
+            "kholo",
+            "volume",
+            "flashlight",
+            "torch",
+            "alarm",
+            "timer",
+            "battery",
+            "wifi",
+            "bluetooth"
+        ).any { lower.contains(it) }
+
+        if (!hasActionVerb) {
+            return listOf(utterance)
+        }
+
+        return utterance.split(
+            Regex(
+                "\\s+(?:and then|aur fir|fir|then|aur)\\s+",
+                RegexOption.IGNORE_CASE
+            )
+        )
             .map { it.trim() }
             .filter { it.isNotEmpty() }
     }
