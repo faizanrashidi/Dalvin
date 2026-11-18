@@ -78,7 +78,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.NovaVoiceAI">
-
+    <service
+        android:name=".core.NovaListeningService"
+        android:exported="false"
+        android:foregroundServiceType="microphone" />
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
